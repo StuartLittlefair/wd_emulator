@@ -214,7 +214,7 @@ class Emulator:
         Ttest = np.linspace(logT.min(), logT.max(), 300)
         Xtest = np.array(list(itertools.product(Ttest, logg[logg_idx:logg_idx+1])))
         mus = self._predict_weights(Xtest)
-        for i, m in enumerate(mus):
+        for i, m in enumerate(mus.T):
             axes[i].plot(Ttest, m)
         axes[-1].set_xlabel("$\log_{10}$ T (K)")
         plt.suptitle(
