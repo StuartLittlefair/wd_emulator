@@ -56,6 +56,27 @@ class Emulator:
         self._weight_interpolator = None
 
     def linear_interpolation(self, params):
+        """
+        Linear barycentric interpolation of the model grid.
+
+        This is a simple alternative to PCA based emulation, using
+        `~scipy.interpolate.LinearNDInterpolator`. The grid is triangulated
+        using Qhull (http://www.qhul.org/) and then the resulting spectrum
+        is found via linear barycentric interpolation on each triangle.
+
+        This is much more accurate than the commonly used bi-linear interpolation.
+
+        Parameters
+        ----------
+        params: ~np.ndarray
+            A pair of log_10(Teff) and log_g values. Can also be a large (N, 2)
+            array if you want to calculate spectra at many points simultaneously.
+
+        Returns
+        -------
+        spectrum: ~np.ndarray
+            The interpolated spectrum or spectra.
+        """
         if self._interpolator is None:
             self._interpolator = LinearNDInterpolator(
                 self.x,
@@ -108,10 +129,12 @@ class Emulator:
         Given a list of stellar parameters (corresponding to a grid point),
         deliver the index that corresponds to the
         entry in the fluxes, grid_points, and weights.
+
         Parameters
         ----------
         params : array_like
             The stellar parameters
+
         Returns
         -------
         index : int
@@ -121,21 +144,39 @@ class Emulator:
         return marks.argmin(axis=1).squeeze()
 
     def _predict_weights(self, pars):
+        """
+        Linear interpolation of weight maps.
+
+        Uses `~scipy.interpolate.LinearNDInterpolator`. The grid is triangulated
+        using Qhull (http://www.qhul.org/) and then the resulting spectrum
+        is found via linear barycentric interpolation on each triangle.
+
+        This is much more accurate than the commonly used bi-linear interpolation.
+        """
+
         if self._weight_interpolator is None:
             self._weight_interpolator = LinearNDInterpolator(
                 self.x, self._pca_weights, rescale=True
             )
         return self._weight_interpolator(pars)
-        """
-        weights = np.array([
-            self._gps[i].predict(self._pca_weights[..., i].ravel(),
-                                 pars, return_cov=False)
-            for i in range(self.ncomps)
-        ])
-        return weights
-        """
 
     def __call__(self, pars):
+        """
+        Emulate the spectrum by interpolating weight maps to find eigenvector weights
+        at this temperature and gravity.
+
+        Parameters
+        ----------
+        params: ~np.ndarray
+            A pair of log_10(Teff) and log_g values. Can also be a large (N, 2)
+            array if you want to calculate spectra at many points simultaneously.
+
+        Returns
+        -------
+        spectrum: ~np.ndarray
+            The interpolated spectrum or spectra.
+        """
+
         # reshape pars into (N, 2) grid of log g, teff. For now assume correct
         # shape
         weights = self._predict_weights(pars)
@@ -143,6 +184,12 @@ class Emulator:
         return spectra.squeeze()
 
     def plot_training_results(self, logg_idx):
+        """
+        Plot the training results at a slice of log g.
+
+        Plots the actual weights found via PCA and the predicted weights
+        from interpolation on a finer grid.
+        """
         if self.ncomps < 4:
             fig, axes = plt.subplots(
                 self.ncomps, 1, sharex=True, figsize=(8, (self.ncomps - 1) * 2)
@@ -176,6 +223,9 @@ class Emulator:
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     def plot_component_weights(self):
+        """
+        Plot the component weight maps.
+        """
         if self.ncomps < 4:
             fig, axes = plt.subplots(
                 self.ncomps, 1, sharex=True, figsize=(8, (self.ncomps - 1) * 2)
@@ -198,5 +248,3 @@ class Emulator:
             ax.set_xlabel('log g')
             ax.set_ylabel('$\log_{10}$ Teff (K)')
         fig.tight_layout()
-
-
