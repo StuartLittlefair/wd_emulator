@@ -1,46 +1,57 @@
 # preprocess Koester grid into NumPy array of shape (n_teffs, n_logg, n_wavelengths)
 import numpy as np
-import glob
 import os
 from scipy.interpolate import interp1d
 from astropy.utils.data import download_file
+from astropy.io import fits
 
 
-KOESTER_DA_URL = "https://github.com/StuartLittlefair/wd_emulator/model_grids/koester_da/"
+KOESTER_DA_URL = "https://raw.githubusercontent.com/StuartLittlefair/wd_emulator/main/model_grids/koester_da/"
 
 
 def download_koester_grid():
-    with open(download_file(KOESTER_DA_URL + "MANIFEST", pkgname='wd_emulator')) as manifest:
-        filenames = manifest.readlines()
-
-    all_files = []
-    for filename in filenames:
-        cache_name = download_file(
-            KOESTER_DA_URL + filename.strip(),
-            cache=True,
-            pkgname='wd_emulator'
-        )
-        all_files.append(cache_name)
-    return all_files
+    return download_file(KOESTER_DA_URL + "grid.fits",
+                         cache=True,
+                         pkgname='wd_emulator')
 
 
-def read_file(path, log_g, teff):
-    fn = f"da{int(teff):05d}_{int(100*log_g):03d}.dk.dat.txt"
-    wave, flux = np.loadtxt(fn, unpack=True)
-    return wave, flux
+def preprocess_koester_grid(wl_range=[None, None], ranges=None):
+    """
+    Pre-process the Koester DA grid ready for interpolation or emulation.
 
+    The Koester model grid is not as nice as we'd like. Each individual model has a
+    slightly different wavelength solution. The function below uses spline interpolation
+    to put them all on an identical wavelength grid.
 
-def preprocess_koester_grid(path, wl_range=[None, None], ranges=None):
+    At the same time we can restrict the wavelength range and/or restrict the grid to a range
+    of temperatures and gravities.
 
-    files = download_koester_grid()
+    Parameters
+    ----------
+    wl_range: tuple, default (None, None)
+        A pair of wavelength limits in Ansgtroms. Spectra will only be computed within this range.
+        The default (None, None) returns the whole grid. A value of None for any limit will return
+        the highest or lowest value in the grid.
+    ranges: list or None
+        A pair of Teff or log g ranges to apply to the grid. The default of None returns the whole
+        grid.
+
+        For example `ranges=[[20000, 40000], [7.5, 8.5]]` would restrict the grid to those
+        temperature and log g ranges. Use None to specify no limit, so, for example,
+        `ranges=[[20000, 40000], [None, None]]` would restrict the grid in temperature
+        only.
+    """
+    grid_file = download_koester_grid()
+
+    hdul = fits.open(grid_file)
+
     # unique Teffs and log_g, in ascending order
-    filenames = [os.path.split(fn)[1] for fn in files]
-    teffs = np.array(sorted(list(set(int(fn[2:7]) for fn in filenames))))
-    gravities = np.array(sorted(list(set(float(fn[8:11])/100 for fn in filenames))))
+    teffs = np.array(sorted(list(set([hdu.header['teff'] for hdu in hdul[1:]]))))
+    gravities = np.array(sorted(list(set([hdu.header['log_g'] for hdu in hdul[1:]]))))
 
     # Koester grid does not have truly identical wavelength scales, so cubic interpolate
     # onto a uniform wavelength scale. For this we pick one file to be the reference scale.
-    wref, _ = read_file(path, 8.0, 20000)
+    wref = hdul[200].data['wavelength']
     wl_low = wref.min() if wl_range[0] is None else wl_range[0]
     wl_high = wref.max() if wl_range[1] is None else wl_range[1]
     index = (wref >= wl_low) & (wref <= wl_high)
@@ -61,7 +72,9 @@ def preprocess_koester_grid(path, wl_range=[None, None], ranges=None):
     # read files into array
     for it, t in enumerate(teffs):
         for ig, g in enumerate(gravities):
-            w, f = read_file(path, g, t)
+            ext_name = f"{int(t)}_{int(100*g)}"
+            ext = hdul[ext_name]
+            w, f = ext.data['wavelength'], ext.data['flux']
             func = interp1d(w, f, kind='cubic', fill_value='extrapolate')
             spectra[it, ig] = func(wref)[index]
     return teffs, gravities, wref[index], spectra
