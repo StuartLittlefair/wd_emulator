@@ -1,4 +1,4 @@
-Tools for Interpolation and Emulation of  thgrids of theoretical model spectra, tailored to WD models in particular
+Tools for Interpolation and Emulation on grids of theoretical model spectra, tailored to WD models in particular
 -------------------------------------------------------------------------------------------------------------------
 
 License
